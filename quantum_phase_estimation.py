@@ -14,54 +14,72 @@ from qiskit.tools.visualization import plot_histogram
 #from qiskit.tools.monitor import job_monitor
 #from qiskit.providers.ibmq import least_busy
 #import math
+import json
 from scipy.linalg import expm
 import qiskit
+import time
+import zmq
 
-A=np.array([[0.2,0.4],[0.4,0.8]])
-Ham=1/(np.matrix.trace(A))*A
-l,u=LA.eig(Ham)
-UH=expm(1j*Ham)
-#state_vector=[u[:1]]
-state_vector=[u[0][j] for j in range(2)]
-#print(state_vector)
-(th, ph, lam)=qiskit.quantum_info.synthesis.two_qubit_decompose.euler_angles_1q(UH)
+def run(input, shot):
+    A=np.array(input)
+    Ham=1/(np.matrix.trace(A))*A
+    l,u=LA.eig(Ham)
+    UH=expm(1j*Ham)
+    #state_vector=[u[:1]]
+    state_vector=[u[0][j] for j in range(2)]
+    #print(state_vector)
+    (th, ph, lam)=qiskit.quantum_info.synthesis.two_qubit_decompose.euler_angles_1q(UH)
 
-q=QuantumRegister(2)
-c=ClassicalRegister(2)
-qc=QuantumCircuit(q,c)
+    q=QuantumRegister(2)
+    c=ClassicalRegister(2)
+    qc=QuantumCircuit(q,c)
 
-qc.initialize(state_vector,[q[1]])
-#preparation of the three first qubits (3-bit eigenvalue estimation)
-qc.h(q[0])
+    qc.initialize(state_vector,[q[1]])
+    #preparation of the three first qubits (3-bit eigenvalue estimation)
+    qc.h(q[0])
 
 
-#Controlled U_H
-qc.cu3(th, ph, lam, q[0],q[1])
+    #Controlled U_H
+    qc.cu3(th, ph, lam, q[0],q[1])
 
-#Inverse QFT
-qc.h(q[0])
+    #Inverse QFT
+    qc.h(q[0])
 
-#projection and meassurement
-qc.barrier(q[0])
-qc.barrier(q[1])
-qc.measure(q[0],c[0])
-qc.measure(q[1],c[1])
+    #projection and meassurement
+    qc.barrier(q[0])
+    qc.barrier(q[1])
+    qc.measure(q[0],c[0])
+    qc.measure(q[1],c[1])
 
-#Run on qasm simulator
-backend_qasm=BasicAer.get_backend('qasm_simulator')
-shot=8192
-job_qasm=execute(qc,backend_qasm,shots=shot)
-result_qasm=job_qasm.result()
-counts=result_qasm.get_counts(qc)
-print(counts)
-Emo1=(counts.get('11'))
-Emo2=(counts.get('10'))
-Emo3=(counts.get('01'))
-Emo4=(counts.get('00'))
-ProbEmo1=round(Emo1/shot,2)
-ProbEmo2=round(Emo2/shot,2)
-ProbEmo3=round(Emo3/shot,2)
-ProbEmo4=round(Emo4/shot,2)
-plot_histogram(counts)
-probs = {"11": ProbEmo1, "10": ProbEmo2, "01": ProbEmo3, "00": ProbEmo4}
-print(probs)
+    #Run on qasm simulator
+    backend_qasm=BasicAer.get_backend('qasm_simulator')
+    job_qasm=execute(qc,backend_qasm,shots=shot)
+    result_qasm=job_qasm.result()
+    counts=result_qasm.get_counts(qc)
+    print(counts)
+    Emo1=(counts.get('11') or 0)
+    Emo2=(counts.get('10') or 0)
+    Emo3=(counts.get('01') or 0)
+    Emo4=(counts.get('00') or 0)
+    ProbEmo1=round(Emo1/shot,2)
+    ProbEmo2=round(Emo2/shot,2)
+    ProbEmo3=round(Emo3/shot,2)
+    ProbEmo4=round(Emo4/shot,2)
+    plot_histogram(counts)
+    probs = {"11": ProbEmo1, "10": ProbEmo2, "01": ProbEmo3, "00": ProbEmo4}
+    return probs
+
+context = zmq.Context()
+socket = context.socket(zmq.REP)
+socket.bind("tcp://*:5555")
+
+while True:
+    #  Wait for next request from client
+    message = socket.recv()
+    array = json.loads(message)
+
+    # result = run([[0.2,0.4],[0.4,0.8]], 3)
+    # socket.send_string(str(result))
+    # socket.send_string(str(run([[0.2,0.4],[0.4,0.8]], 301)))
+    # socket.send_string(str(run([[0.2,0.4],[0.4,0.8]], 3001)))
+    socket.send_string(str(run(array, 8192)))
