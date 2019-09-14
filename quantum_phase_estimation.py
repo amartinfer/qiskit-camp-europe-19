@@ -7,41 +7,39 @@ Created on Fri Sep 13 13:34:04 2019
 """
 
 import numpy as np
+import qiskit
+import json
+import time
+import zmq
 from numpy import linalg as LA
 from qiskit import QuantumRegister, ClassicalRegister, QuantumCircuit
 from qiskit import BasicAer, execute
 from qiskit.tools.visualization import plot_histogram
-#from qiskit.tools.monitor import job_monitor
-#from qiskit.providers.ibmq import least_busy
-#import math
-import json
 from scipy.linalg import expm
-import qiskit
-import time
-import zmq
 
 def run(input, shot):
-    A=np.array(input)
-    Ham=1/(np.matrix.trace(A))*A
-    l,u=LA.eig(Ham)
-    UH=expm(1j*Ham)
-    #state_vector=[u[:1]]
-    state_vector=[u[0][j] for j in range(2)]
-    #print(state_vector)
-    (th, ph, lam)=qiskit.quantum_info.synthesis.two_qubit_decompose.euler_angles_1q(UH)
+    #Define the Hamiltonian extracted from the picture
+    Picture_Hamilt=np.array(input)
+    #Make it Hermitian
+    Hermitian_Hamilt=1/(np.matrix.trace(Picture_Hamilt))*Picture_Hamilt
+    #Classically get its eigenvalues "l" and eigenvectors "u", we will use the later to intialize one of the qubits
+    l,u=LA.eig(Hermitian_Hamilt)
 
+    #Let's create the circuit!
     q=QuantumRegister(2)
     c=ClassicalRegister(2)
     qc=QuantumCircuit(q,c)
 
+    #The inithial state of the second qubit of our circuit will be one of the eigenvectors of the Hamiltonian, we define it:
+    state_vector=[u[0][j] for j in range(2)]
     qc.initialize(state_vector,[q[1]])
-    #preparation of the three first qubits (3-bit eigenvalue estimation)
+    #Quantum Phase Estimation begins
+    #create superposition wuth the Hadamard gate
     qc.h(q[0])
-
-
-    #Controlled U_H
+    #The unitary matrix of the controlled unitary gate of the quantum phase estimation circuit is the following:
+    UH=expm(1j*Hermitian_Hamilt)
+    (th, ph, lam)=qiskit.quantum_info.synthesis.two_qubit_decompose.euler_angles_1q(UH)
     qc.cu3(th, ph, lam, q[0],q[1])
-
     #Inverse QFT
     qc.h(q[0])
 
